@@ -1,0 +1,18 @@
+#general
+httpx
+click
+isodate
+python-dotenv
+
+#datamodel
+pydantic
+pydantic-settings
+
+#service
+fastapi[standard]
+uvicorn[standard]
+
+#wiz lights
+pywizlight
+nest_asyncio
+netifaces
