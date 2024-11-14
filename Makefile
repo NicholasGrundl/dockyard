@@ -52,7 +52,7 @@ ARTIFACT_REGISTRY_HOST ?= $(or $(ARTIFACT_REGISTRY_HOST),us-west1-docker.pkg.dev
 DOCKER_IMAGE ?= $(or $(DOCKER_IMAGE),dockyard)
 
 # --- Version from package
-VERSION=`grep version setup.cfg | awk '{print $$3}'`
+VERSION=`grep __version__ src/dockyard/__init__.py | awk '{print $$3}' | tr -d '"'`
 TAGNAME=v$(VERSION)
 DOCKER_TAG=$(VERSION)
 
@@ -86,7 +86,7 @@ docker.build:
 
 .PHONY: docker.build.dev
 docker.build.dev:
-	docker build --target builder -t $(DOCKER_IMAGE):local .
+	docker build --target python-base -t $(DOCKER_IMAGE):local .
 	docker tag $(DOCKER_IMAGE):local $(DOCKER_IMAGE):latest
 
 .PHONY: docker.push
