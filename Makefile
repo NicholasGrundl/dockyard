@@ -2,10 +2,24 @@
 # Allow override of env file path
 ENV_FILE ?= .env
 
-include $(ENV_FILE)
-set-env:
-	$(eval export $(shell cat $(ENV_FILE) | xargs))
+# Load environment variables at the start
+ifneq (,$(wildcard $(ENV_FILE)))
+    include $(ENV_FILE)
+    export $(shell sed 's/=.*//' $(ENV_FILE))
+endif
 
+# Add a required vars check
+.PHONY: check.env
+check.env:
+	@if [ -z "$(ARTIFACT_REGISTRY_HOST)" ]; then \
+		echo "Error: ARTIFACT_REGISTRY_HOST not set in $(ENV_FILE)"; \
+		exit 1; \
+	fi
+	@if [ -z "$(DOCKER_IMAGE)" ]; then \
+		echo "Error: DOCKER_IMAGE not set in $(ENV_FILE)"; \
+		exit 1; \
+	fi
+	
 
 #### Python Environment ####
 .PHONY: install
@@ -52,22 +66,23 @@ format:
 	ruff format $(FORMAT_DIRS)
 
 #### Build/Publish ####
-# --- Version from package
+# --- Version Tags
 PACKAGE_NAME=dockmaster
 PACKAGE_VERSION=`grep version setup.cfg | awk '{print $$3}'`
-GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
+GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD | tr -d '\n')
 GIT_SHA=`git rev-parse --short HEAD`
-# Set TAGNAME based on branch
+
 ifeq ($(GIT_BRANCH),main)
     TAGNAME=v$(PACKAGE_VERSION)
+    DOCKER_TAG=$(TAGNAME)
 else
     TAGNAME=v$(PACKAGE_VERSION)-$(GIT_BRANCH)-$(GIT_SHA)
+    DOCKER_TAG=$(TAGNAME)
 endif
-DOCKER_IMAGE ?= $(or $(DOCKER_IMAGE),dockmaster)
 
-# --- Local build ---
+# --- General publish to github
 .PHONY: publish.info
-publish.info:
+publish.info: 
 	@echo "Package: $(PACKAGE_NAME)"
 	@echo "Package Version: $(PACKAGE_VERSION)"
 	@echo "Tagname: $(TAGNAME)"
@@ -80,17 +95,21 @@ publish.setup:
 	@bash -c "./setup.cfg.sh"
 	git add setup.cfg src/dockyard/__init__.py
 	@echo "---Committing+Pushing setup file changes"
-	git commit -m"$(TAGNAME): creating setup.cfg" --allow-empty
+	git commit -m"setup: creating a new setup.cfg from __init__.py" --allow-empty
 	git push -u origin HEAD
 
 .PHONY: publish.build
-publish.build:
+publish.build: publish.setup
 	@echo "---Building Project..."
 	@rm -rf dist/* 
 	python -m build -n
 
 .PHONY: publish.tag
 publish.tag:
+	@if [ "$(GIT_BRANCH)" != "main" ]; then \
+		echo "Error: Tagging a package release only allowed on main branch"; \
+		exit 1; \
+	fi
 	@echo "---Tagging commit hash $(TAGNAME)"
 	git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
 	git push origin $(TAGNAME)
@@ -100,47 +119,77 @@ publish.tag:
 .PHONY: docker.help
 docker.help:
 	@echo "Docker commands:"
-	@echo "  make docker.build      - Build Docker image and tag for production"
+	@echo "  make docker.build      - Build Docker image and tag based on branch"
 	@echo "  make docker.push       - Push to Google Artifact Repository"
 
-# ---- Development ----
-.PHONY: docker.dev.build
-docker.dev.build:
-	# Build and tag for dev
-	docker build -t $(DOCKER_IMAGE):dev .
-
-.PHONY: docker.dev.shell
-docker.dev.shell:
-	@echo "Opening dev container with shell..."
-	docker run --rm -it --name dockyard-dev $(DOCKER_IMAGE):dev bash
-
-.PHONY: docker.dev.run
-docker.dev.run:
-	@echo "Running dev container..."
-	docker run --rm -it -p 8000:8000 --name dockyard-dev $(DOCKER_IMAGE):dev
-
-.PHONY: docker.dev.clean
-docker.dev.clean:
-	@echo "Stopping dev container..."
-	docker stop $(DOCKER_IMAGE):dev 2>/dev/null || true
-	@echo "Removing dev container..."
-	docker rm $(DOCKER_IMAGE):dev -f
-
-# ---- Production ----
+# ---- General ----
 .PHONY: docker.build
-docker.build:
-	# Build and tag for local
-	docker build -t $(DOCKER_IMAGE):$(TAGNAME) .
-	# Tag for Artifact Registry
-	docker tag $(DOCKER_IMAGE):$(TAGNAME) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(TAGNAME)
-	docker tag $(DOCKER_IMAGE):$(TAGNAME) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest
+docker.build: check.env
+	@echo "Building image: $(DOCKER_IMAGE):$(DOCKER_TAG)"
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 
 .PHONY: docker.push
-docker.push:
-	@echo "Pushing dockmaster image to GAR..."
-	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:$(TAGNAME)
-	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:latest
-	@echo "Push completed successfully"
+docker.push: check.env docker.build
+	@echo "Pushing image to registry..."
+	#Tag for registry
+	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker push $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(DOCKER_TAG)
+
+	@if [ "$(GIT_BRANCH)" = "main" ]; then \
+		echo "Tagging and pushing latest for main branch..."; \
+		docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest; \
+		docker push $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest; \
+	fi
+
+
+# ---- Development ----
+.PHONY: dev.release
+dev.release: publish.info 
+	@if [ "$(GIT_BRANCH)" = "main" ]; then \
+		echo "Warning: Running dev.release on main branch"; \
+		exit 1; \
+	fi
+	@echo "Development release with tag: $(DOCKER_TAG)"
+	@make docker.push
+	@echo "Development release complete ✓"
+
+
+.PHONY: dev.shell
+dev.shell: publish.info 
+	@echo "Opening dev container with shell..."
+	@make docker.build
+	docker run --rm -it --name dockyard-dev $(DOCKER_IMAGE):$(DOCKER_TAG) bash
+
+.PHONY: dev.run
+dev.run: publish.info 
+	@echo "Running dev container..."
+	@make docker.build
+	docker run --rm -it -p 8000:8000 --name dockyard-dev $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+.PHONY: dev.clean
+dev.clean: publish.info
+	@echo "Stopping dev container..."
+	docker stop $(DOCKER_IMAGE):$(DOCKER_TAG) 2>/dev/null || true
+	@echo "Removing dev container..."
+	docker rm $(DOCKER_IMAGE):$(DOCKER_TAG) -f
+
+# ---- Production ----
+
+
+
+.PHONY: prod.release
+prod.release: publish.info
+	@if [ "$(GIT_BRANCH)" != "main" ]; then \
+		echo "Error: Production release only allowed on main branch"; \
+		exit 1; \
+	fi
+	@echo "Tagging production commit for github..."
+	@make publish.setup
+	@make publish.tag
+	@echo "Tagging production image for registry..."
+	@make docker.push
+	@echo "Production release complete with tag: $(DOCKER_TAG) ✓"
+
 
 #### Context ####
 .PHONY: context
@@ -174,3 +223,34 @@ jupyter:
 fastapi.dev:
 	@echo "Starting FastAPI server for development..."
 	@fastapi dev src/dockmaster/main.py --reload
+
+
+
+# Add at the end of your Makefile or in a test section
+
+#### Test Targets ####
+.PHONY: test.branch
+test.branch:
+	@if [ "$(GIT_BRANCH)" != "main" ]; then \
+		echo "Not on main branch - current: $(GIT_BRANCH)"; \
+		exit 1; \
+	fi
+	@echo "On main branch ✓"
+
+.PHONY: test.env
+test.env:
+	@echo "Testing ENV_FILE: $(ENV_FILE)"
+	@if [ -f "$(ENV_FILE)" ]; then \
+		echo "ENV file exists ✓"; \
+		echo "Testing env vars:"; \
+		echo "ARTIFACT_REGISTRY_HOST: $${ARTIFACT_REGISTRY_HOST}"; \
+	else \
+		echo "ENV file not found!"; \
+		exit 1; \
+	fi
+
+.PHONY: test.chain
+test.chain: test.env
+	@echo "First target completed ✓"
+	@make test.branch || echo "Branch check failed (expected if not on main)"
+	@echo "Chain complete ✓"
