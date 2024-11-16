@@ -101,32 +101,39 @@ publish.tag:
 docker.help:
 	@echo "Docker commands:"
 	@echo "  make docker.build      - Build Docker image and tag for production"
-	@echo "  make docker.build.dev  - Build Docker image for local development"
-	@echo "  make docker.run        - Run Docker image"
-	@echo "  make docker.run.dev    - Run Docker image for development"
 	@echo "  make docker.push       - Push to Google Artifact Repository"
 
-.PHONY: docker.run
-docker.run:
-	docker run -it --rm $(DOCKER_IMAGE):$(DOCKER_TAG) bash
+# ---- Development ----
+.PHONY: docker.dev.build
+docker.dev.build:
+	# Build and tag for dev
+	docker build -t $(DOCKER_IMAGE):dev .
 
-.PHONY: docker.run.dev
-docker.run.dev:
-	docker run -it --rm $(DOCKER_IMAGE):dev bash
+.PHONY: docker.dev.shell
+docker.dev.shell:
+	@echo "Opening dev container with shell..."
+	docker run --rm -it --name dockyard-dev $(DOCKER_IMAGE):dev bash
 
+.PHONY: docker.dev.run
+docker.dev.run:
+	@echo "Running dev container..."
+	docker run --rm -it -p 8000:8000 --name dockyard-dev $(DOCKER_IMAGE):dev
+
+.PHONY: docker.dev.clean
+docker.dev.clean:
+	@echo "Stopping dev container..."
+	docker stop $(DOCKER_IMAGE):dev 2>/dev/null || true
+	@echo "Removing dev container..."
+	docker rm $(DOCKER_IMAGE):dev -f
+
+# ---- Production ----
 .PHONY: docker.build
 docker.build:
 	# Build and tag for local
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
-	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKER_IMAGE):latest
 	# Tag for Artifact Registry
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(DOCKER_TAG)
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest
-
-.PHONY: docker.build.dev
-docker.build.dev:
-	# Build and tag for dev
-	docker build --target python-base -t $(DOCKER_IMAGE):dev .
 
 .PHONY: docker.push
 docker.push:
