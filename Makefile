@@ -68,7 +68,7 @@ format:
 #### Build/Publish ####
 # --- Version Tags
 PACKAGE_NAME=dockmaster
-PACKAGE_VERSION=`grep version setup.cfg | awk '{print $$3}'`
+PACKAGE_VERSION=$(shell grep version setup.cfg | awk '{print $$3}')
 GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD | tr -d '\n')
 GIT_SHA=`git rev-parse --short HEAD`
 
@@ -110,6 +110,10 @@ publish.tag:
 		echo "Error: Tagging a package release only allowed on main branch"; \
 		exit 1; \
 	fi
+	@if git rev-parse "$(TAGNAME)" >/dev/null 2>&1; then \
+		echo "Tag $(TAGNAME) already exists"; \
+		exit 0; \
+	fi
 	@echo "---Tagging commit hash $(TAGNAME)"
 	git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
 	git push origin $(TAGNAME)
@@ -141,7 +145,6 @@ docker.push: check.env docker.build
 		docker push $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest; \
 	fi
 
-
 # ---- Development ----
 .PHONY: dev.release
 dev.release: publish.info 
@@ -158,25 +161,22 @@ dev.release: publish.info
 dev.shell: publish.info 
 	@echo "Opening dev container with shell..."
 	@make docker.build
-	docker run --rm -it --name dockyard-dev $(DOCKER_IMAGE):$(DOCKER_TAG) bash
+	docker run --rm -it --name $(DOCKER_IMAGE)-dev $(DOCKER_IMAGE):$(DOCKER_TAG) bash
 
 .PHONY: dev.run
 dev.run: publish.info 
 	@echo "Running dev container..."
 	@make docker.build
-	docker run --rm -it -p 8000:8000 --name dockyard-dev $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker run --rm -it -p 8000:8000 --name $(DOCKER_IMAGE)-dev $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 .PHONY: dev.clean
 dev.clean: publish.info
-	@echo "Stopping dev container..."
-	docker stop $(DOCKER_IMAGE):$(DOCKER_TAG) 2>/dev/null || true
-	@echo "Removing dev container..."
-	docker rm $(DOCKER_IMAGE):$(DOCKER_TAG) -f
+	@echo "Cleaning up dev container..."
+	@docker stop $(DOCKER_IMAGE)-dev 2>/dev/null || true
+	@docker rm $(DOCKER_IMAGE)-dev 2>/dev/null || true
+	@echo "Cleanup complete ✓"
 
 # ---- Production ----
-
-
-
 .PHONY: prod.release
 prod.release: publish.info
 	@if [ "$(GIT_BRANCH)" != "main" ]; then \
@@ -224,33 +224,3 @@ fastapi.dev:
 	@echo "Starting FastAPI server for development..."
 	@fastapi dev src/dockmaster/main.py --reload
 
-
-
-# Add at the end of your Makefile or in a test section
-
-#### Test Targets ####
-.PHONY: test.branch
-test.branch:
-	@if [ "$(GIT_BRANCH)" != "main" ]; then \
-		echo "Not on main branch - current: $(GIT_BRANCH)"; \
-		exit 1; \
-	fi
-	@echo "On main branch ✓"
-
-.PHONY: test.env
-test.env:
-	@echo "Testing ENV_FILE: $(ENV_FILE)"
-	@if [ -f "$(ENV_FILE)" ]; then \
-		echo "ENV file exists ✓"; \
-		echo "Testing env vars:"; \
-		echo "ARTIFACT_REGISTRY_HOST: $${ARTIFACT_REGISTRY_HOST}"; \
-	else \
-		echo "ENV file not found!"; \
-		exit 1; \
-	fi
-
-.PHONY: test.chain
-test.chain: test.env
-	@echo "First target completed ✓"
-	@make test.branch || echo "Branch check failed (expected if not on main)"
-	@echo "Chain complete ✓"
