@@ -78,9 +78,9 @@ publish.info:
 publish.setup:
 	@echo "---Recreating setup.cfg file "
 	@bash -c "./setup.cfg.sh"
-	@git add setup.cfg src/dockyard/__init__.py
-	@echo "---Committing+Pushing setup file changes
-	@git commit -m"$(TAGNAME): creating setup.cfg" --allow-empty
+	git add setup.cfg src/dockyard/__init__.py
+	@echo "---Committing+Pushing setup file changes"
+	git commit -m"$(TAGNAME): creating setup.cfg" --allow-empty
 	git push -u origin HEAD
 
 .PHONY: publish.build
@@ -92,8 +92,8 @@ publish.build:
 .PHONY: publish.tag
 publish.tag:
 	@echo "---Tagging commit hash $(TAGNAME)"
-	@git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
-	git push origin "$(TAGNAME)"
+	git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
+	git push origin $(TAGNAME)
 	@echo "---Pushed tag as version=$(PACKAGE_VERSION)"
 
 #### Docker Commands ####
