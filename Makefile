@@ -1,3 +1,12 @@
+#### Environment Variables ####
+# Allow override of env file path
+ENV_FILE ?= .env
+
+include $(ENV_FILE)
+set-env:
+	$(eval export $(shell cat $(ENV_FILE) | xargs))
+
+
 #### Python Environment ####
 .PHONY: install
 install: 
@@ -34,9 +43,6 @@ test.unit:
 FORMAT_DIRS = src/ test/
 LINT_DIRS = src/ test/
 
-.PHONY: pre-commit
-pre-commit: format lint test
-
 .PHONY: lint
 lint:
 	ruff check $(LINT_DIRS)
@@ -46,28 +52,49 @@ format:
 	ruff format $(FORMAT_DIRS)
 
 #### Build/Publish ####
-# --- Env vars
--include .env.publish
-ARTIFACT_REGISTRY_HOST ?= $(or $(ARTIFACT_REGISTRY_HOST),us-west1-docker.pkg.dev/)
-DOCKER_IMAGE ?= $(or $(DOCKER_IMAGE),dockyard)
-
 # --- Version from package
-VERSION=`grep __version__ src/dockyard/__init__.py | awk '{print $$3}' | tr -d '"'`
-TAGNAME=v$(VERSION)
-DOCKER_TAG=$(VERSION)
+PACKAGE_NAME=dockmaster
+PACKAGE_VERSION=`grep version setup.cfg | awk '{print $$3}'`
+GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
+GIT_SHA=`git rev-parse --short HEAD`
+# Set TAGNAME based on branch
+ifeq ($(GIT_BRANCH),main)
+    TAGNAME=v$(PACKAGE_VERSION)
+else
+    TAGNAME=v$(PACKAGE_VERSION)-$(GIT_BRANCH)-$(GIT_SHA)
+endif
+DOCKER_IMAGE ?= $(or $(DOCKER_IMAGE),dockmaster)
+DOCKER_TAG=$(PACKAGE_VERSION)
 
-# # --- Local build ---
-# .PHONY: publish.build
-# build:
-# 	@echo "Building frontend..."
-# 	npm run build
+# --- Local build ---
+.PHONY: publish.info
+publish.info:
+	@echo "Package: $(PACKAGE_NAME)"
+	@echo "Package Version: $(PACKAGE_VERSION)"
+	@echo "Tagname: $(TAGNAME)"
+	@echo "Docker tag: $(DOCKER_TAG)"
+	@echo "Docker image: $(DOCKER_IMAGE)"
+
+.PHONY: publish.setup
+publish.setup:
+	@echo "---Recreating setup.cfg file "
+	@bash -c "./setup.cfg.sh"
+	@git add setup.cfg src/dockyard/__init__.py
+	git commit -m"$(TAGNAME): creating setup.cfg" --allow-empty
+	git push -u origin HEAD
+
+.PHONY: publish.build
+publish.build:
+	@echo "---Building Project..."
+	@rm -rf dist/* 
+	python -m build -n
 
 .PHONY: publish.tag
 publish.tag:
 	@echo "---Tagging commit hash $(TAGNAME)"
 	git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
 	git push origin $(TAGNAME)
-	@echo "---Pushed tag as version=$(VERSION)"
+	@echo "---Pushed tag as version=$(PACKAGE_VERSION)"
 
 #### Docker Commands ####
 .PHONY: docker.help
@@ -75,23 +102,35 @@ docker.help:
 	@echo "Docker commands:"
 	@echo "  make docker.build      - Build Docker image and tag for production"
 	@echo "  make docker.build.dev  - Build Docker image for local development"
+	@echo "  make docker.run        - Run Docker image"
+	@echo "  make docker.run.dev    - Run Docker image for development"
 	@echo "  make docker.push       - Push to Google Artifact Repository"
+
+.PHONY: docker.run
+docker.run:
+	docker run -it --rm $(DOCKER_IMAGE):$(DOCKER_TAG) bash
+
+.PHONY: docker.run.dev
+docker.run.dev:
+	docker run -it --rm $(DOCKER_IMAGE):dev bash
 
 .PHONY: docker.build
 docker.build:
+	# Build and tag for local
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKER_IMAGE):latest
+	# Tag for Artifact Registry
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(DOCKER_TAG)
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest
 
 .PHONY: docker.build.dev
 docker.build.dev:
-	docker build --target python-base -t $(DOCKER_IMAGE):local .
-	docker tag $(DOCKER_IMAGE):local $(DOCKER_IMAGE):latest
+	# Build and tag for dev
+	docker build --target python-base -t $(DOCKER_IMAGE):dev .
 
 .PHONY: docker.push
 docker.push:
-	@echo "Pushing waypoint image to GAR..."
+	@echo "Pushing dockmaster image to GAR..."
 	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:$(DOCKER_TAG)
 	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:latest
 	@echo "Push completed successfully"
