@@ -64,7 +64,6 @@ else
     TAGNAME=v$(PACKAGE_VERSION)-$(GIT_BRANCH)-$(GIT_SHA)
 endif
 DOCKER_IMAGE ?= $(or $(DOCKER_IMAGE),dockmaster)
-DOCKER_TAG=$(PACKAGE_VERSION)
 
 # --- Local build ---
 .PHONY: publish.info
@@ -72,7 +71,7 @@ publish.info:
 	@echo "Package: $(PACKAGE_NAME)"
 	@echo "Package Version: $(PACKAGE_VERSION)"
 	@echo "Tagname: $(TAGNAME)"
-	@echo "Docker tag: $(DOCKER_TAG)"
+	@echo "Docker tag: $(TAGNAME)"
 	@echo "Docker image: $(DOCKER_IMAGE)"
 
 .PHONY: publish.setup
@@ -80,7 +79,8 @@ publish.setup:
 	@echo "---Recreating setup.cfg file "
 	@bash -c "./setup.cfg.sh"
 	@git add setup.cfg src/dockyard/__init__.py
-	git commit -m"$(TAGNAME): creating setup.cfg" --allow-empty
+	@echo "---Committing+Pushing setup file changes
+	@git commit -m"$(TAGNAME): creating setup.cfg" --allow-empty
 	git push -u origin HEAD
 
 .PHONY: publish.build
@@ -92,8 +92,8 @@ publish.build:
 .PHONY: publish.tag
 publish.tag:
 	@echo "---Tagging commit hash $(TAGNAME)"
-	git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
-	git push origin $(TAGNAME)
+	@git tag -a $(TAGNAME) -m "Release $(TAGNAME)"
+	git push origin "$(TAGNAME)"
 	@echo "---Pushed tag as version=$(PACKAGE_VERSION)"
 
 #### Docker Commands ####
@@ -130,15 +130,15 @@ docker.dev.clean:
 .PHONY: docker.build
 docker.build:
 	# Build and tag for local
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	docker build -t $(DOCKER_IMAGE):$(TAGNAME) .
 	# Tag for Artifact Registry
-	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(DOCKER_TAG)
-	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest
+	docker tag $(DOCKER_IMAGE):$(TAGNAME) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):$(TAGNAME)
+	docker tag $(DOCKER_IMAGE):$(TAGNAME) $(ARTIFACT_REGISTRY_HOST)/$(DOCKER_IMAGE):latest
 
 .PHONY: docker.push
 docker.push:
 	@echo "Pushing dockmaster image to GAR..."
-	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:$(DOCKER_TAG)
+	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:$(TAGNAME)
 	docker push ${ARTIFACT_REGISTRY_HOST}/${DOCKER_IMAGE}:latest
 	@echo "Push completed successfully"
 
