@@ -18,14 +18,12 @@ ENV PATH=${CONDA_DIR}/bin:${PATH}
 
 ####### Core Python build layer
 FROM os-base AS python-base
-ENV PYTHON_VERSION=3.9
+ENV PYTHON_VERSION=3.10
 RUN conda create -n myapp-backend python=${PYTHON_VERSION} pip -y
 ENV CONDA_DEFAULT_ENV=myapp-backend
 ENV PATH=${CONDA_DIR}/envs/${CONDA_DEFAULT_ENV}/bin:${PATH}
 COPY requirements.txt /tmp/requirements.txt
-COPY requirements-dev.txt /tmp/requirements-dev.txt
 RUN pip install -r /tmp/requirements.txt && \
-    pip install -r /tmp/requirements-dev.txt && \
     conda clean -afy && \
     find ${CONDA_DIR} -follow -type f -name '*.a' -delete && \
     find ${CONDA_DIR} -follow -type f -name '*.pyc' -delete && \
@@ -34,7 +32,7 @@ RUN pip install -r /tmp/requirements.txt && \
 ####### App build layer
 FROM python-base AS app-build
 WORKDIR /app
-COPY ./src/dockyard /app
+COPY ./src/dockyard /app/dockyard
 # -- build local package/app if needed
 # RUN pip install --no-cache-dir . && \
 #     find /app -type d -name "__pycache__" -exec rm -rf {} +
@@ -54,4 +52,4 @@ RUN useradd -m myapp && \
 USER myapp
 
 EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "dockyard.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -54,8 +54,8 @@ test.unit:
 	pytest -rfEP $(TEST_COMMANDS) tests
 
 #### Code Style ####
-FORMAT_DIRS = src/ test/
-LINT_DIRS = src/ test/
+FORMAT_DIRS = src/ tests/
+LINT_DIRS = src/ tests/
 
 .PHONY: lint
 lint:
@@ -67,7 +67,7 @@ format:
 
 #### Build/Publish ####
 # --- Version Tags
-PACKAGE_NAME=dockmaster
+PACKAGE_NAME=dockyard
 PACKAGE_VERSION=$(shell grep version setup.cfg | awk '{print $$3}')
 GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD | tr -d '\n')
 GIT_SHA=`git rev-parse --short HEAD`
@@ -93,7 +93,7 @@ publish.info:
 publish.setup:
 	@echo "---Recreating setup.cfg file "
 	@bash -c "./setup.cfg.sh"
-	git add setup.cfg src/dockyard/__init__.py
+	git add setup.cfg src/$(PACKAGE_NAME)/__init__.py
 	@echo "---Committing+Pushing setup file changes"
 	git commit -m"setup: creating a new setup.cfg from __init__.py" --allow-empty
 	git push -u origin HEAD
@@ -167,7 +167,9 @@ dev.shell: publish.info
 dev.run: publish.info 
 	@echo "Running dev container..."
 	@make docker.build
-	docker run --rm -it -p 8000:8000 --name $(DOCKER_IMAGE)-dev $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker run --rm -it -p 127.0.0.1:8000:8000 \
+	--name $(DOCKER_IMAGE)-dev --env-file ./.env \
+	$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 .PHONY: dev.clean
 dev.clean: publish.info
@@ -204,7 +206,7 @@ context.src:
 .PHONY: context.settings
 context.settings:
 	repo2txt -r . -o ./context/context-settings.txt \
-	--exclude-dir context src notebooks \
+	--exclude-dir context src tests notebooks \
 	--ignore-types .md \
 	--ignore-files LICENSE README.md \
 	&& python -c 'import sys; open("context/context-settings.md","wb").write(open("context/context-settings.txt","rb").read().replace(b"\0",b""))' \

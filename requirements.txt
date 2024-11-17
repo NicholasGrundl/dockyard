@@ -13,6 +13,6 @@ fastapi[standard]
 uvicorn[standard]
 
 #wiz lights
-pywizlight
-nest_asyncio
-netifaces
+# pywizlight
+# nest_asyncio
+# netifaces
